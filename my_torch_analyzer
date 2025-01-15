@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import numpy as np
+from neural_network import NeuralNetwork
+from processor import ChessBoardProcessor
+
+class ChessAnalyzer:
+    
+    def train_network(network, input_file, save_file=None, debug=False):
+        X_train, X_val, y_train, y_val, _ = ChessBoardProcessor.generate_advanced_training_data(file_path=input_file, output_classes=network.get_output_classes())
+        print("Starting network training...")
+        X_train_flat = X_train.reshape(X_train.shape[0], -1)
+        X_val_flat = X_val.reshape(X_val.shape[0], -1)
+        network.train(X_train=X_train_flat, y_train=y_train, X_test=X_val_flat, y_test=y_val, epochs=100, debug=debug)
+
+        print("Training complete")
+        X_test_flat = X_val.reshape(X_val.shape[0], -1)
+        predictions = network.predict(X_test_flat)
+        test_predictions = np.argmax(predictions, axis=1)
+        test_true_labels = np.argmax(y_val, axis=1)
+        test_accuracy = np.mean(test_predictions == test_true_labels)
+        print(f"\nTest Accuracy: {test_accuracy:.4f}")
+        
+        if save_file:
+            network.save(save_file)
+            print(f"Trained network saved to {save_file}")
+    
+    
+    def predict(network, input_file, debug=False):
+        if (network.get_output_classes() == 2):
+            labels = ['Check', 'Nothing']
+        elif (network.get_output_classes() == 4):
+            labels = ['Checkmate', 'Check', 'Stalemate', 'Nothing']
+        elif (network.get_output_classes() == 6):
+            labels = ['Checkmate Black', 'Checkmate White', 'Check Black', 'Check White', 'Stalemate', 'Nothing']
+        
+        correct_pred = 0
+        all_pred=0
+
+        with open(input_file, 'r') as f:
+            for line in f:
+                fen = line
+                
+                X, y = ChessBoardProcessor.generate_line(fen, output_classes=network.get_output_classes())
+                
+                prediction = network.predict(X.reshape(1, -1), debug=debug)
+                state_index = np.argmax(prediction)
+                print(f"{labels[state_index]}")
+                if (state_index == np.argmax(y)):
+                    correct_pred +=1
+                all_pred +=1
+                if debug:
+                    print()
+            if debug:
+                print(f"Correct Predictions: {correct_pred}")
+                print(f"Total Predictions: {all_pred}")
+                print((correct_pred/all_pred)*100,"%")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Chess Board Neural Network Analyzer"
+    )
+    
+    mode_group = parser.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument(
+        '--train', 
+        action='store_true', 
+        help="Train the neural network"
+    )
+    mode_group.add_argument(
+        '--predict', 
+        action='store_true', 
+        help="Use neural network for predictions"
+    )
+    
+    parser.add_argument(
+        'load_file', 
+        help="Neural network file to load"
+    )
+    parser.add_argument(
+        'input_file', 
+        help="File containing chess board data"
+    )
+    parser.add_argument(
+        '--save', 
+        help="File to save trained network (only in train mode)"
+    )
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+    )
+    try:
+        args = parser.parse_args()
+    except SystemExit:
+        exit(84)
+    
+    try:
+        network = NeuralNetwork.load(args.load_file)
+        
+        if args.train:
+            save_path = args.save if args.save else args.load_file
+            ChessAnalyzer.train_network(
+                network, 
+                args.input_file, 
+                save_file=save_path,
+                debug=args.debug
+            )
+        
+        elif args.predict:
+            ChessAnalyzer.predict(network, args.input_file, args.debug)
+    
+    except FileNotFoundError as e:
+        print(f"Error: File not found - {e}")
+        exit(84)
+    
+    except json.JSONDecodeError:
+        print("Error: Invalid network file format")
+        exit(84)
+    
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        exit(84)
+
+if __name__ == "__main__":
+    main()
